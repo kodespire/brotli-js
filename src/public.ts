@@ -6,9 +6,9 @@ import type { BackendKind, Bytes, CompressOptions, DecompressOptions, WasmSource
 /**
  * Compresses `data` into one brotli stream.
  *
- * The default quality is 11, the brotli CLI default: the smallest output, but slow (around
- * 1 MB/s). For data compressed on the fly, quality 4 to 6 is often 50 to 100 times faster
- * for output a few percent larger.
+ * The default quality is 11, the brotli CLI default: the smallest output, but slow (under
+ * 1 MB/s). For data compressed on the fly, quality 4 to 6 is roughly 50 to 100 times faster,
+ * with output around 20% larger.
  *
  * @param data Bytes to compress. Strings are encoded as UTF-8.
  * @param options Options, or just a quality (`compress(data, 5)`).
