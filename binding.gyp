@@ -31,7 +31,11 @@
       "msvs_settings": {
         "VCCLCompilerTool": {
           "Optimization": 2,
-          "AdditionalOptions": ["/std:c++17", "/utf-8"]
+          # Node's common.gypi sets /fp:strict for Windows arm64, under which
+          # MSVC will not fold brotli's `static const double x = 0.07 / 2000;`
+          # (error C2099). /fp:precise folds it and, since VS 2022, does not
+          # fuse multiply-adds either. Options here come last, so they win.
+          "AdditionalOptions": ["/std:c++17", "/utf-8", "/fp:precise"]
         }
       }
     }
