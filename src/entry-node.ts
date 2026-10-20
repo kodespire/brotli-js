@@ -1,0 +1,46 @@
+// Node.js and Bun entry: the native addon, falling back to WebAssembly when no
+// prebuilt binary matches this platform. Set BROTLI_JS_BACKEND=wasm to force WebAssembly.
+// Keep the export list in sync with entry-wasm.ts and entry-workerd.js.
+import { createApi } from './api.js';
+import { compileWasm, compileWasmSync } from './load-wasm-node.js';
+import { loadNativeBackend } from './native-backend.js';
+import type { Backend, BackendProvider } from './types.js';
+import { createWasmProvider } from './wasm-provider.js';
+
+const wasm = createWasmProvider(compileWasm, compileWasmSync);
+let native: Backend | undefined;
+let nativeUnavailable = process.env['BROTLI_JS_BACKEND'] === 'wasm';
+
+function tryNative(): Backend | undefined {
+  if (native || nativeUnavailable) return native;
+  try {
+    native = loadNativeBackend();
+  } catch {
+    nativeUnavailable = true;
+  }
+  return native;
+}
+
+const provider: BackendProvider = {
+  get: async () => tryNative() ?? wasm.get(),
+  getSync: () => tryNative() ?? wasm.getSync(),
+  init: async (source) => {
+    if (!tryNative()) await wasm.init(source);
+  },
+  kind: () => (tryNative() ? 'native' : 'wasm'),
+};
+
+export const {
+  compress,
+  compressSync,
+  decompress,
+  decompressSync,
+  createCompressStream,
+  createDecompressStream,
+  init,
+  activeBackend,
+} = createApi(provider);
+
+export { BrotliError, type BrotliErrorCode } from './errors.js';
+export type { BackendKind, BrotliMode, Bytes, CompressOptions, DecompressOptions, WasmSource } from './types.js';
+export { BROTLI_VERSION, DEFAULT_LGWIN, DEFAULT_QUALITY, LARGE_MAX_LGWIN, MAX_LGWIN, MAX_QUALITY, MIN_LGWIN, MIN_QUALITY } from './version.js';

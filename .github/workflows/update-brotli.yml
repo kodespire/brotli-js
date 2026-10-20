@@ -1,0 +1,63 @@
+# Weekly: if google/brotli has published a newer release than deps/brotli is
+# pinned to, open a pull request that moves the submodule to it. CI then runs
+# the full test suite against the new version.
+#
+# Needs "Allow GitHub Actions to create and approve pull requests" enabled in
+# Settings > Actions > General. Pull requests opened with GITHUB_TOKEN do not
+# trigger CI on their own, so the job starts the CI workflow on the branch itself.
+name: Update brotli
+
+on:
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: write
+  pull-requests: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: true
+          fetch-depth: 0
+      - name: Compare with the latest upstream release
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          latest="$(gh release view -R google/brotli --json tagName -q .tagName)"
+          latest_sha="$(gh api "repos/google/brotli/commits/$latest" --jq .sha)"
+          current_sha="$(git -C deps/brotli rev-parse HEAD)"
+          current="v$(sed -n "s/export const BROTLI_VERSION = '\(.*\)';/\1/p" src/version.ts)"
+          echo "latest=$latest" >> "$GITHUB_OUTPUT"
+          echo "current=$current" >> "$GITHUB_OUTPUT"
+          echo "outdated=$([ "$latest_sha" = "$current_sha" ] && echo false || echo true)" >> "$GITHUB_OUTPUT"
+          echo "pinned: $current ($current_sha), latest: $latest ($latest_sha)"
+      - name: Open a pull request
+        if: steps.check.outputs.outdated == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LATEST: ${{ steps.check.outputs.latest }}
+          CURRENT: ${{ steps.check.outputs.current }}
+        run: |
+          branch="update-brotli-$LATEST"
+          if git ls-remote --exit-code --heads origin "$branch" >/dev/null; then
+            echo "branch $branch already exists"; exit 0
+          fi
+          git -C deps/brotli fetch --depth 1 origin tag "$LATEST"
+          git -C deps/brotli checkout "$LATEST"
+          version="${LATEST#v}"
+          sed -i "s/export const BROTLI_VERSION = '.*';/export const BROTLI_VERSION = '$version';/" src/version.ts
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$branch"
+          git add deps/brotli src/version.ts
+          git commit -m "Update brotli to $LATEST"
+          git push origin "$branch"
+          gh workflow run ci.yml --ref "$branch"
+          gh pr create --title "Update brotli to $LATEST" --body "Moves deps/brotli from $CURRENT to [$LATEST](https://github.com/google/brotli/releases/tag/$LATEST). CI runs the full suite against it. Before merging, check the release notes for changes to quality or window ranges and defaults (src/version.ts), new source files with duplicate names (scripts/brotli-sources.cjs), and encoder options that start or stop affecting output (test/options.test.ts)."
