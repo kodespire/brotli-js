@@ -3,12 +3,16 @@
 # platform, and (for v* tags) publishes it with provenance.
 #
 # Run it by hand (Actions > Release > Run workflow) to get the tarball as an
-# artifact without publishing.
+# artifact without publishing. Pull requests that change this file run it the
+# same way.
 name: Release
 
 on:
   push:
     tags: ['v*']
+  # A dry run of every job except publishing whenever this file changes in a pull request.
+  pull_request:
+    paths: ['.github/workflows/release.yml']
   workflow_dispatch:
 
 permissions:
