@@ -41,4 +41,20 @@ const backend = b.activeBackend();
 const expected = globalThis.process?.env?.EXPECT_BACKEND ?? globalThis.Deno?.env.get('EXPECT_BACKEND');
 if (expected && backend !== expected) fail(`backend is ${backend}, expected ${expected}`);
 
-console.log(`ok: ${runtime}, backend=${backend}, brotli ${b.BROTLI_VERSION}, ${src.length} -> ${stream.length} bytes`);
+// This prebuild must produce the same bytes as WebAssembly: the encoder's
+// floating-point cost model has to round the same way in both builds.
+const wasm = await import('@kodespire/brotli-js/wasm');
+await wasm.init();
+const words = 'the quick brown fox jumps over a lazy dog brotli window block literal distance'.split(' ');
+let x = 1;
+const varied = new TextEncoder().encode(Array.from({ length: 40_000 }, () => {
+  x = (Math.imul(x, 1664525) + 1013904223) >>> 0;
+  return words[x % words.length] + (x % 13 === 0 ? ` ${x % 1000}\n` : '');
+}).join(' '));
+for (const quality of [1, 5, 9, 11]) {
+  if (!equal(b.compressSync(varied, quality), wasm.compressSync(varied, quality))) {
+    fail(`${backend} and WebAssembly output differ at quality ${quality}`);
+  }
+}
+
+console.log(`ok: ${runtime}, backend=${backend} (same bytes as wasm), brotli ${b.BROTLI_VERSION}, ${src.length} -> ${stream.length} bytes`);
