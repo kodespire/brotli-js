@@ -22,12 +22,15 @@ Pod::Spec.new do |s|
     "ios/*.{h,mm}",
     "cpp/*.{h,cpp}",
     "csrc/*.{h,c}",
-    "#{brotli}/include/brotli/*.h",
-    "#{brotli}/{common,dec,enc}/*.{h,c}",
+    "#{brotli}/{common,dec,enc}/*.c",
   ]
   s.exclude_files = "#{brotli}/{dec,enc}/static_init.c"
-  # Only the provider is public, so brotli's internal headers (platform.h,
-  # state.h, ...) never shadow another pod's.
+  # brotli's headers stay out of the pod's header maps: CocoaPods would flatten
+  # them, and names such as memory.h, types.h and version.h would then shadow
+  # system headers. Its sources include them by relative path, and
+  # HEADER_SEARCH_PATHS has include/ for <brotli/*.h>.
+  s.preserve_paths = ["#{brotli}/include/brotli/*.h", "#{brotli}/{common,dec,enc}/*.h", "#{brotli}/{dec,enc}/static_init.c"]
+  # Only the provider is public.
   s.public_header_files = "ios/*.h"
 
   s.pod_target_xcconfig = {
