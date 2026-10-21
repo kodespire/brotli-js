@@ -1,11 +1,12 @@
 # brotli-js
 
 [![CI](https://github.com/kodespire/brotli-js/actions/workflows/ci.yml/badge.svg)](https://github.com/kodespire/brotli-js/actions/workflows/ci.yml)
+[![React Native](https://github.com/kodespire/brotli-js/actions/workflows/react-native.yml/badge.svg)](https://github.com/kodespire/brotli-js/actions/workflows/react-native.yml)
 
-Brotli compression for Node.js, Bun, Deno, browsers and edge runtimes, with one API everywhere.
+Brotli compression for Node.js, Bun, Deno, browsers, edge runtimes and React Native, with one API everywhere.
 
 - **The official library.** Compiled from [google/brotli](https://github.com/google/brotli) v1.2.0, pinned as a git submodule. A weekly job opens a PR when upstream releases.
-- **Native where possible, WebAssembly everywhere else.** Node.js and Bun use a Node-API addon. Browsers, Deno and Workers use WebAssembly built from the same C code, and both produce the same bytes. If no prebuilt binary matches your platform, the package switches to WebAssembly on its own.
+- **Native where possible, WebAssembly everywhere else.** Node.js and Bun use a Node-API addon, and React Native uses a JSI module. Browsers, Deno and Workers use WebAssembly built from the same C code, and every build produces the same bytes. If no prebuilt binary matches your platform, the package switches to WebAssembly on its own.
 - **No install scripts.** Prebuilt binaries ship inside the package. `npm install` never downloads or compiles anything.
 - **Never returns partial data.** Cut-off input, bytes after the end of the stream and output over your size limit all throw. They never return what was decoded so far.
 
@@ -78,6 +79,22 @@ import { init, compressSync } from '@kodespire/brotli-js';
 await init();
 const packed = compressSync('hello');
 ```
+
+### React Native
+
+```sh
+npm install @kodespire/brotli-js
+cd ios && pod install
+```
+
+Then rebuild the app (`npx react-native run-ios`, `run-android`, or `npx expo run:ios` and `run:android`). The package contains a C++ TurboModule compiled from the same C code as the other builds. Autolinking adds it to the iOS build (CocoaPods) and the Android build (CMake). It needs React Native 0.84 or later with the New Architecture, which is the default. The API, options and error codes are the same as everywhere else, and so are the compressed bytes.
+
+- **Expo:** works in development builds and EAS builds. **Expo Go can't load it**, because Expo Go only contains Expo's own native code. In Expo Go, calls reject with `ERR_BROTLI_NOT_INITIALIZED` and a message saying so. There's no fallback: Hermes has no WebAssembly.
+- **App size:** brotli adds about 0.8 MB of native code and tables per CPU architecture (about 0.4 MB compressed in the download). Most of it is the encoder; the decoder and its built-in dictionary are about 170 KB.
+- **Async calls run on background threads**, so `await compress(bigFile)` doesn't block the JS thread. That matters more for brotli than for most codecs: quality 11, the default, compresses at about 1 MB/s. The sync versions run on the JS thread, so use a low quality with them.
+- **Streams need a `TransformStream`**, and Hermes doesn't have one. Expo installs one. In bare React Native, install [web-streams-polyfill](https://github.com/MattiasBuelens/web-streams-polyfill) and `import 'web-streams-polyfill/polyfill'` once at startup. Without it, `createCompressStream()` throws a `TypeError` that says this. The package doesn't bundle a polyfill: React Native's `fetch` doesn't stream bodies, so there's little to pipe, Expo already ships one, and a second copy would add about 65 KB to every app.
+- **Web (Expo web, react-native-web):** the web build gets the WebAssembly version, like any browser build. Metro doesn't copy `brotli.wasm`, so put `node_modules/@kodespire/brotli-js/dist/brotli.wasm` in your `public/` folder and call `await init('/brotli.wasm')` before the first call.
+- **iOS 27 needs a `SceneDelegate`.** iOS 27 stops apps that don't use the UIScene lifecycle, and the React Native 0.84 app template has none (0.88's has one). This affects any 0.84 app on iOS 27, not just this package. The example app's [`SceneDelegate.swift`](example/react-native/ios/BrotliExample/SceneDelegate.swift) shows the change; it also needs `UIApplicationSceneManifest` in `Info.plist`.
 
 ### Untrusted input
 
@@ -157,13 +174,13 @@ An unknown option name throws a `TypeError`. A typo like `{ level: 5 }` fails lo
 | `ERR_BROTLI_OUTPUT_LIMIT` | The output would exceed `maxOutputSize`. |
 | `ERR_BROTLI_LIBRARY` | brotli rejected the data (the message carries the decoder's error), or bytes followed the end of the stream. |
 | `ERR_BROTLI_OUT_OF_MEMORY` | An allocation failed, or the settings need more memory than WebAssembly can address. |
-| `ERR_BROTLI_NOT_INITIALIZED` | A sync function was called in a browser or Worker before `await init()`. |
+| `ERR_BROTLI_NOT_INITIALIZED` | A sync function was called in a browser or Worker before `await init()`, or the React Native module isn't in the app (Expo Go). |
 | `ERR_BROTLI_INVALID_ARGUMENT` | As named. |
 
 ## Behaviour details
 
-- **Native and WebAssembly output are identical**, byte for byte, for the same options. CI checks this on Linux, macOS and Windows.
-- **The async functions use separate threads only on the native addon**, which runs them on Node's thread pool. The WebAssembly backend runs on the calling thread, so for large inputs in a browser, call it from a Web Worker.
+- **Native and WebAssembly output are identical**, byte for byte, for the same options. CI checks this on Linux, macOS and Windows, and the React Native self-test on iOS and Android.
+- **The async functions use separate threads only on the native backends.** The Node addon runs them on Node's thread pool, and React Native on a small pool of its own. The WebAssembly backend runs on the calling thread, so for large inputs in a browser, call it from a Web Worker.
 - **Forcing WebAssembly:** set `BROTLI_JS_BACKEND=wasm` in Node.js, or import `@kodespire/brotli-js/wasm` in any runtime.
 - **Not included:** custom dictionaries, and `node:zlib`'s flush modes. Streams emit compressed output as the encoder produces it and finish the stream when the writable side closes.
 
@@ -176,13 +193,14 @@ An unknown option name throws a `TypeError`. A typo like `{ level: 5 }` fails lo
 | Deno 2 | WebAssembly | Linux |
 | Chromium, Firefox, WebKit | WebAssembly | Playwright, through Vite |
 | Cloudflare Workers (`workerd` condition) | WebAssembly | `wrangler dev` (workerd) |
+| React Native 0.84+ on iOS and Android (`react-native` condition) | native (JSI) | iOS simulator, Android emulator |
 
 Prebuilt native binaries cover:
 - macOS arm64 and x64
 - Linux x64 and arm64 (glibc 2.28+ and musl)
 - Windows x64 and arm64
 
-Bundlers that understand `new URL('./brotli.wasm', import.meta.url)`, such as Vite, webpack 5 and Parcel, pick up the WebAssembly file automatically. For anything else, serve `@kodespire/brotli-js/brotli.wasm` yourself and pass its URL to `init()`.
+Bundlers that understand `new URL('./brotli.wasm', import.meta.url)`, such as Vite, webpack 5 and Parcel, pick up the WebAssembly file automatically. For anything else, including Metro for the web, serve `@kodespire/brotli-js/brotli.wasm` yourself and pass its URL to `init()`.
 
 ## Development
 
@@ -197,7 +215,17 @@ npm test
 BROWSERS=chromium npx vitest run -c vitest.browser.config.ts
 ```
 
-All compression logic is in `csrc/bjs.c`, which both builds share. `csrc/addon.cc` (Node-API) and `src/wasm-backend.ts` (WebAssembly) only move bytes in and out. The tests run every case against both backends. They also check:
+The React Native example app runs a self-test on a simulator or emulator. Its `npm install` packs the package the way npm would publish it, so build `dist/` first:
+
+```sh
+cd example/react-native
+npm install
+(cd ios && bundle install && bundle exec pod install)
+npm run selftest:ios       # boots a simulator if none is running
+npm run selftest:android   # start an emulator first; needs ANDROID_HOME
+```
+
+All compression logic is in `csrc/bjs.c`, which every build shares. `csrc/addon.cc` (Node-API), `cpp/KodespireBrotliModule.cpp` (React Native) and `src/wasm-backend.ts` (WebAssembly) only move bytes in and out. The tests run every case against both backends. They also check:
 - decoding of output from the official CLI, and the CLI decoding ours
 - two-way round trips with `node:zlib`, including large windows
 - input cut at every byte offset, including right after a flush
