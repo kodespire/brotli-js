@@ -1,6 +1,6 @@
 // Must match deps/brotli (checked by test/version.test.ts).
 /** Version of the bundled brotli library, the same for the native and WebAssembly builds. */
-export const BROTLI_VERSION = '1.2.0';
+export const BROTLI_VERSION = '1.2.1';
 /** Fastest (lowest-ratio) quality. */
 export const MIN_QUALITY = 0;
 /** Highest-ratio (slowest) quality. */
